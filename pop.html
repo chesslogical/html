@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pop!_OS Hardening Guide for Secure Web Browsing</title>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 20px; background: #f5f5f5; }
+    h1, h2 { color: #2c3e50; }
+    ul { margin-left: 20px; }
+    code { background: #e8e8e8; padding: 2px 4px; border-radius: 4px; font-family: monospace; color: #2c3e50; }
+    .section { background: #fff; padding: 15px; margin-bottom: 20px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    pre { background: #e8e8e8; color: #2c3e50; padding: 15px; border-radius: 6px; overflow-x: auto; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <h1>Pop!_OS Hardening Guide for Secure Web Browsing</h1>
+
+  <div class="section">
+    <h2>1. Keep Your System Updated</h2>
+    <ul>
+      <li>Run <code>sudo apt update && sudo apt upgrade -y</code> regularly.</li>
+      <li>Enable automated security updates:
+        <ul>
+          <li><code>sudo apt install -y unattended-upgrades debconf-utils</code></li>
+          <li><code>echo 'unattended-upgrades unattended-upgrades/enable_auto_updates boolean true' | sudo debconf-set-selections</code></li>
+          <li><code>sudo dpkg-reconfigure -fnoninteractive unattended-upgrades</code></li>
+        </ul>
+      </li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>2. Full Disk Encryption</h2>
+    <ul>
+      <li>Ensure you chose LUKS encryption during installation.</li>
+      <li>Verify with <code>lsblk -f</code> that your root partition is encrypted.</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>3. Configure the Firewall</h2>
+    <ul>
+      <li><code>sudo apt install -y ufw</code></li>
+      <li>Set defaults:
+        <ul>
+          <li><code>sudo ufw default deny incoming</code></li>
+          <li><code>sudo ufw default allow outgoing</code></li>
+        </ul>
+      </li>
+      <li>Enable UFW: <code>sudo ufw --force enable</code></li>
+      <li>Check status: <code>sudo ufw status verbose</code></li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>4. Remove Unnecessary Services</h2>
+    <ul>
+      <li>Remove SSH server:
+        <ul>
+          <li><code>sudo apt purge -y openssh-server</code></li>
+          <li><code>sudo systemctl disable --now ssh</code></li>
+        </ul>
+      </li>
+      <li>Disable Bluetooth and printing if unused:
+        <ul>
+          <li><code>sudo systemctl disable --now bluetooth</code></li>
+          <li><code>sudo systemctl disable --now cups</code></li>
+        </ul>
+      </li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>5. Application Sandboxing with Firejail</h2>
+    <ul>
+      <li>Install Firejail and profiles:
+        <ul><li><code>sudo apt install -y firejail firejail-profiles</code></li></ul>
+      </li>
+      <li>Launch your browser sandboxed:
+        <ul><li><code>firejail firefox</code> or <code>firejail chromium</code></li></ul>
+      </li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>6. Enforce AppArmor Profiles</h2>
+    <ul>
+      <li>Install and enforce all profiles:
+        <ul>
+          <li><code>sudo apt install -y apparmor apparmor-profiles</code></li>
+          <li><code>sudo aa-enforce /etc/apparmor.d/*</code></li>
+        </ul>
+      </li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>7. Antivirus and Malware Protection (Not Recommended)</h2>
+    <ul>
+      <li>For a Linux desktop dedicated to web browsing, antivirus software offers negligible benefit and may introduce additional attack surface.</li>
+      <li>If you handle untrusted files or need to scan for cross-platform malware, consider offline scanning in a controlled environment rather than running an AV service continuously.</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>8. Audit Logging</h2>
+    <ul>
+      <li>Install auditd:
+        <ul>
+          <li><code>sudo apt install -y auditd</code></li>
+          <li><code>sudo systemctl enable --now auditd</code></li>
+        </ul>
+      </li>
+      <li>Review logs with <code>journalctl</code> or <code>ausearch</code>.</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>9. Lock Root Account</h2>
+    <ul>
+      <li>Disable root login:
+        <ul><li><code>sudo passwd -l root</code></li></ul>
+      </li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>10. Additional Tips</h2>
+    <ul>
+      <li>Enable Secure Boot in your BIOS/UEFI.</li>
+      <li>Use strong, unique passwords and consider a password manager.</li>
+      <li>Back up important data regularly and verify backups.</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>Automated Hardening Script</h2>
+    <p>Copy and paste into a terminal to apply these settings:</p>
+    <pre><code>#!/bin/bash
+set -eux
+
+# Update and upgrade
+sudo apt update && sudo apt upgrade -y
+
+# Enable unattended security updates
+sudo apt install -y unattended-upgrades debconf-utils
+echo 'unattended-upgrades unattended-upgrades/enable_auto_updates boolean true' | sudo debconf-set-selections
+sudo dpkg-reconfigure -fnoninteractive unattended-upgrades
+
+# Configure UFW
+sudo apt install -y ufw
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw --force enable
+
+# Remove SSH server
+sudo apt purge -y openssh-server
+sudo systemctl disable --now ssh
+
+# Disable Bluetooth and printing
+sudo systemctl disable --now bluetooth
+sudo systemctl disable --now cups
+
+# Install and enforce AppArmor
+sudo apt install -y apparmor apparmor-profiles
+sudo aa-enforce /etc/apparmor.d/*
+
+# Install Firejail
+sudo apt install -y firejail firejail-profiles
+
+# Install and enable auditd
+sudo apt install -y auditd
+sudo systemctl enable --now auditd
+
+# Lock root account
+sudo passwd -l root
+
+echo "Pop!_OS hardening complete."</code></pre>
+  </div>
+</body>
+</html>
+
+
