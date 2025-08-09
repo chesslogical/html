@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SHA3-512 / Keccak-512 Hasher</title>
+  <style>
+    :root { --bg:#0b0c10; --card:#12131a; --fg:#e8eaf0; --muted:#8a8fa3; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; display:grid; place-items:center; background:#0c1220; color:var(--fg); font:16px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Arial; padding:24px; }
+    .wrap { width:100%; max-width:820px; background:rgba(18,19,26,.9); border:1px solid #23263a; border-radius:18px; padding:20px; box-shadow:0 10px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.05) }
+    h1{margin:0 0 6px; font-size:22px}
+    .sub{margin:0 0 14px; color:var(--muted); font-size:13px}
+    textarea{width:100%; min-height:120px; resize:vertical; background:#0e1120; color:var(--fg); border:1px solid #252a40; border-radius:14px; padding:12px 14px}
+    .row{display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top:12px}
+    .btn{appearance:none; border:1px solid #2c314b; background:#121732; color:var(--fg); padding:10px 14px; border-radius:12px; cursor:pointer; font-weight:600}
+    .btn:hover{background:#16204b; border-color:#3a4270}
+    label{color:var(--muted); font-size:13px}
+    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; word-break:break-all; white-space:pre-wrap}
+    .out{margin-top:14px; padding:12px 14px; border:1px dashed #2e3657; border-radius:14px; background:#0c0f1d}
+    .meta{color:var(--muted); font-size:12px; margin-top:6px; display:flex; gap:12px; flex-wrap:wrap}
+    .spacer{flex:1}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>SHA3-512 / Keccak-512 Hasher</h1>
+    <p class="sub">Paste text (UTF-8) or toggle “Treat input as hex” for raw bytes like <span class="mono">48656c6c6f</span>. Click the button to compute.</p>
+
+    <textarea id="input" placeholder="Type or paste your input..."></textarea>
+
+    <div class="row">
+      <label><input type="checkbox" id="asHex"> Treat input as hex bytes</label>
+      <span class="spacer"></span>
+      <label><input type="radio" name="algo" value="sha3" checked> SHA3-512 (FIPS-202)</label>
+      <label><input type="radio" name="algo" value="keccak"> Keccak-512 (legacy 0x01)</label>
+      <span class="spacer"></span>
+      <button class="btn" id="go">Hash It</button>
+      <button class="btn" id="copy">Copy</button>
+      <button class="btn" id="clear">Clear</button>
+    </div>
+
+    <div class="out">
+      <div class="mono" id="hash">—</div>
+      <div class="meta">
+        <span id="len">0 bytes</span>
+        <span id="algoname">Algorithm: SHA3-512</span>
+        <span id="status"></span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ======== SHA3-512 / Keccak-512 (Keccak-f[1600]) — pure JS ========
+    (() => {
+      const RATE_BYTES = 72;   // 576-bit rate
+      const OUT_BYTES  = 64;   // 512-bit output
+      const MASK_64    = (1n << 64n) - 1n;
+
+      const RC = [
+        0x0000000000000001n,0x0000000000008082n,0x800000000000808An,0x8000000080008000n,
+        0x000000000000808Bn,0x0000000080000001n,0x8000000080008081n,0x8000000000008009n,
+        0x000000000000008An,0x0000000000000088n,0x0000000080008009n,0x000000008000000An,
+        0x000000008000808Bn,0x800000000000008Bn,0x8000000000008089n,0x8000000000008003n,
+        0x8000000000008002n,0x8000000000000080n,0x000000000000800An,0x800000008000000An,
+        0x8000000080008081n,0x8000000000008080n,0x0000000080000001n,0x8000000080008008n
+      ];
+      const R = [
+        [0,36,3,41,18],
+        [1,44,10,45,2],
+        [62,6,43,15,61],
+        [28,55,25,21,56],
+        [27,20,39,8,14]
+      ];
+      const rotl64 = (x,n) => ((x << BigInt(n)) | (x >> (64n - BigInt(n)))) & MASK_64;
+
+      function keccakF(s) {
+        const B = new Array(25).fill(0n);
+        const C = new Array(5).fill(0n);
+        const D = new Array(5).fill(0n);
+        for (let round = 0; round < 24; round++) {
+          // θ
+          for (let x = 0; x < 5; x++) C[x] = s[x] ^ s[x+5] ^ s[x+10] ^ s[x+15] ^ s[x+20];
+          for (let x = 0; x < 5; x++) D[x] = (C[(x+4)%5] ^ rotl64(C[(x+1)%5], 1)) & MASK_64;
+          for (let y = 0; y < 5; y++) {
+            const y5 = 5*y;
+            for (let x = 0; x < 5; x++) s[x+y5] = (s[x+y5] ^ D[x]) & MASK_64;
+          }
+          // ρ and π
+          for (let y = 0; y < 5; y++) {
+            for (let x = 0; x < 5; x++) {
+              const Xp = y;
+              const Yp = (2*x + 3*y) % 5;
+              B[Xp + 5*Yp] = rotl64(s[x + 5*y], R[x][y]);
+            }
+          }
+          // χ
+          for (let y = 0; y < 5; y++) {
+            const y5 = 5*y;
+            for (let x = 0; x < 5; x++) {
+              s[x+y5] = (B[x+y5] ^ ((~B[(x+1)%5 + y5]) & B[(x+2)%5 + y5])) & MASK_64;
+            }
+          }
+          // ι
+          s[0] = (s[0] ^ RC[round]) & MASK_64;
+        }
+      }
+
+      function absorbBlock(state, block /* Uint8Array */) {
+        for (let i = 0; i < RATE_BYTES; i++) {
+          const lane = (i / 8) | 0;
+          const shift = 8n * BigInt(i % 8); // little-endian inside each 64-bit lane
+          state[lane] = (state[lane] ^ (BigInt(block[i]) << shift)) & MASK_64;
+        }
+        keccakF(state);
+      }
+
+      function sponge(bytes, dsByte /* 0x06 SHA3, 0x01 Keccak */) {
+        const state = new Array(25).fill(0n);
+
+        let off = 0;
+        while (off + RATE_BYTES <= bytes.length) {
+          absorbBlock(state, bytes.subarray(off, off + RATE_BYTES));
+          off += RATE_BYTES;
+        }
+
+        const block = new Uint8Array(RATE_BYTES);
+        const tail = bytes.subarray(off);
+        block.set(tail);
+        block[tail.length] ^= dsByte;       // domain separation
+        block[RATE_BYTES - 1] ^= 0x80;      // pad10*1
+        absorbBlock(state, block);
+
+        const out = new Uint8Array(OUT_BYTES);
+        let produced = 0;
+        while (produced < OUT_BYTES) {
+          for (let i = 0; i < RATE_BYTES && produced < OUT_BYTES; i++) {
+            const lane = (i / 8) | 0;
+            const shift = 8n * BigInt(i % 8);
+            out[produced++] = Number((state[lane] >> shift) & 0xFFn);
+          }
+          if (produced < OUT_BYTES) keccakF(state);
+        }
+        return out;
+      }
+
+      // ======== UI ========
+      const $in   = document.getElementById('input');
+      const $hex  = document.getElementById('asHex');
+      const $go   = document.getElementById('go');
+      const $copy = document.getElementById('copy');
+      const $clr  = document.getElementById('clear');
+      const $hash = document.getElementById('hash');
+      const $len  = document.getElementById('len');
+      const $algoname = document.getElementById('algoname');
+      const $status = document.getElementById('status');
+      const enc = new TextEncoder();
+
+      const toHex = (u8) => Array.from(u8, b => b.toString(16).padStart(2,'0')).join('');
+      function parseHex(str){
+        const clean = str.replace(/\s+/g,'').toLowerCase();
+        if (!clean) return new Uint8Array(0);
+        if (clean.length % 2 || /[^0-9a-f]/.test(clean)) throw new Error('Invalid hex input');
+        const out = new Uint8Array(clean.length/2);
+        for (let i=0;i<clean.length;i+=2) out[i>>1] = parseInt(clean.slice(i,i+2),16);
+        return out;
+      }
+      function currentDS(){
+        const v = document.querySelector('input[name="algo"]:checked').value;
+        $algoname.textContent = 'Algorithm: ' + (v === 'sha3' ? 'SHA3-512' : 'Keccak-512');
+        return v === 'sha3' ? 0x06 : 0x01;
+      }
+
+      function process() {
+        try {
+          const msg = $in.value;
+          const bytes = $hex.checked ? parseHex(msg) : enc.encode(msg);
+          $len.textContent = `${bytes.length} byte${bytes.length===1?'':'s'}`;
+          const digest = sponge(bytes, currentDS());
+          const hex = toHex(digest);
+          $hash.textContent = hex;
+          $status.textContent = '';
+        } catch (e) {
+          $hash.textContent = `Error: ${e.message}`;
+          $status.textContent = '';
+        }
+      }
+
+      $go.addEventListener('click', process);
+      $copy.addEventListener('click', async () => {
+        const val = $hash.textContent || '';
+        if (!val || val.startsWith('Error')) return;
+        try { await navigator.clipboard.writeText(val); $copy.textContent='Copied!'; setTimeout(()=>{$copy.textContent='Copy'},900); } catch {}
+      });
+      $clr.addEventListener('click', ()=>{ $in.value=''; $hash.textContent='—'; $len.textContent='0 bytes'; $status.textContent=''; });
+
+      // optional: allow Ctrl+Enter to hash
+      document.addEventListener('keydown', (e)=>{ if((e.ctrlKey||e.metaKey) && e.key==='Enter') process(); });
+    })();
+  </script>
+</body>
+</html>
+
