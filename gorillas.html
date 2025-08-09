@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gorillas — Single Player (HTML/JS)</title>
+<style>
+  :root { --ui-bg: rgba(20,20,30,.7); --ui-fg: #f5f7ff; --accent: #ffd54a; }
+  html, body { margin:0; padding:0; height:100%; background:#101522; color:#e8ebff;
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+  #wrap { position:relative; width:100%; height:100%; overflow:hidden; }
+  canvas { display:block; width:100%; height:100%; background:#1a2340; }
+  .hud { position:absolute; left:12px; bottom:12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+    background:var(--ui-bg); border:1px solid rgba(255,255,255,.08); padding:10px 12px; border-radius:12px; box-shadow:0 6px 20px rgba(0,0,0,.35); }
+  .hud label { font-size:13px; opacity:.9; margin-right:6px; }
+  .hud input { width:70px; padding:6px 8px; border-radius:9px; border:1px solid rgba(255,255,255,.15); background:#0f1422; color:var(--ui-fg); outline:none; }
+  .hud button { padding:8px 14px; border-radius:999px; border:0; background:var(--accent); color:#202020; font-weight:700; cursor:pointer; box-shadow:0 6px 16px rgba(0,0,0,.35); }
+  .hud button:disabled { opacity:.55; cursor:not-allowed; }
+  .hud .group { display:flex; align-items:center; gap:6px; }
+  .topbar { position:absolute; inset:10px 10px auto 10px; display:flex; align-items:center; gap:12px; }
+  .badge { background:var(--ui-bg); border:1px solid rgba(255,255,255,.08); padding:6px 10px; border-radius:999px; font-size:12px; }
+  .windwrap { display:flex; align-items:center; gap:8px; }
+  #windArrow { width:160px; height:12px; display:block; background:#0e1528; border-radius:999px; overflow:hidden; border:1px solid rgba(255,255,255,.08) }
+  #windFill { height:100%; width:50%; background:linear-gradient(90deg,#79ffe1,#ffd54a); transform-origin:left center; }
+  .status { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); font-size:28px; font-weight:800; text-align:center; padding:10px 16px; border-radius:12px; background:rgba(0,0,0,.35); display:none; }
+  .help { position:absolute; right:12px; bottom:12px; font-size:12px; opacity:.9; background:var(--ui-bg); border:1px solid rgba(255,255,255,.08); padding:8px 10px; border-radius:10px; }
+</style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="game" width="960" height="600" aria-label="Gorillas game canvas"></canvas>
+
+    <div class="topbar">
+      <div class="badge" id="roundBadge">Round 1</div>
+      <div class="badge windwrap">
+        <span>Wind:</span>
+        <div id="windArrow"><div id="windFill"></div></div>
+        <span id="windTxt">0</span>
+      </div>
+      <div class="badge" id="turnTxt">Your turn</div>
+    </div>
+
+    <div class="hud" role="form" aria-label="Throw controls">
+      <div class="group">
+        <label for="ang">Angle (°)</label>
+        <input id="ang" type="number" min="0" max="90" step="1" value="45" />
+      </div>
+      <div class="group">
+        <label for="vel">Velocity</label>
+        <input id="vel" type="number" min="5" max="100" step="1" value="50" />
+      </div>
+      <button id="fireBtn">THROW</button>
+      <button id="newBtn" title="New City">New City</button>
+    </div>
+
+    <div class="help">Type angle & velocity like the original QBASIC game, then press THROW (or Enter). First hit wins the round.</div>
+    <div class="status" id="status"></div>
+  </div>
+
+<script>
+(() => {
+  // === Config / constants ===
+  const CANVAS = document.getElementById('game');
+  const CTX = CANVAS.getContext('2d');
+  const TERRAIN = document.createElement('canvas');
+  TERRAIN.width = CANVAS.width; TERRAIN.height = CANVAS.height;
+  const TCTX = TERRAIN.getContext('2d');
+
+  // Cached terrain alpha (speed & stability)
+  let terrainData = null, terrainW = CANVAS.width, terrainH = CANVAS.height;
+  function rebuildTerrainCache(){
+    try { terrainW = CANVAS.width; terrainH = CANVAS.height; terrainData = TCTX.getImageData(0,0,terrainW,terrainH).data; }
+    catch { terrainData = null; }
+  }
+
+  const UI = {
+    ang: document.getElementById('ang'), vel: document.getElementById('vel'),
+    fire: document.getElementById('fireBtn'), newBtn: document.getElementById('newBtn'),
+    windFill: document.getElementById('windFill'), windTxt: document.getElementById('windTxt'),
+    turnTxt: document.getElementById('turnTxt'), round: document.getElementById('roundBadge'), status: document.getElementById('status'),
+  };
+
+  const G = 58, VEL_TO_PX = 7.5, MAX_WIND = 10, WIND_TO_AX = 6.0;
+  const BANANA_R = 3.5, EXPLODE_R = 26, EXPLODE_R_WALL = 34, TUNNEL_STEPS = 4, TUNNEL_STEP = 12;
+  const DT = 1/60;
+
+  let buildings = []; let leftGorilla=null, rightGorilla=null; let wind = 0; let turn = 'player'; let round = 1;
+  let projectile = null; let animId = null;
+
+  // Utils
+  const rand=(a,b)=>Math.random()*(b-a)+a; const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)); const degToRad=d=>d*Math.PI/180; const dist=(x1,y1,x2,y2)=>Math.hypot(x2-x1,y2-y1);
+
+  function terrainSolidAt(x,y){
+    if (x<0||x>=terrainW||y<0||y>=terrainH) return false;
+    if (terrainData){ const xi=x|0, yi=y|0; const idx=(yi*terrainW+xi)*4+3; return terrainData[idx]>4; }
+    try { return TCTX.getImageData(x|0,y|0,1,1).data[3]>4; } catch { return false; }
+  }
+
+  function crater(x,y,r){
+    TCTX.save(); TCTX.globalCompositeOperation='destination-out';
+    const g=TCTX.createRadialGradient(x,y,0,x,y,r); g.addColorStop(0,'rgba(0,0,0,1)'); g.addColorStop(1,'rgba(0,0,0,0)');
+    TCTX.fillStyle=g; TCTX.beginPath(); TCTX.arc(x,y,r,0,Math.PI*2); TCTX.fill(); TCTX.restore();
+    rebuildTerrainCache();
+  }
+
+  // City
+  function newCity(){
+    buildings=[]; TCTX.clearRect(0,0,TERRAIN.width,TERRAIN.height);
+    const minW=35,maxW=85; let x=0;
+    while(x<CANVAS.width){
+      const w=Math.min((rand(minW,maxW)|0), CANVAS.width-x);
+      const h=(rand(CANVAS.height*0.25, CANVAS.height*0.75)|0);
+      const y=CANVAS.height-h; buildings.push({x,y,w,h});
+      TCTX.fillStyle=`hsl(${rand(200,260)},25%,${rand(30,55)}%)`; TCTX.fillRect(x,y,w,h);
+      TCTX.fillStyle='rgba(255,255,255,.1)'; TCTX.fillRect(x,y,w,4);
+      TCTX.fillStyle='rgba(255,255,140,.75)'; const gx=10,gy=14,ww=6,hh=6,sx=8,sy=10;
+      for(let yy=y+gy; yy<y+h-10; yy+=gy+sy) for(let xx=x+gx; xx<x+w-10; xx+=gx+sx) if(Math.random()<0.7) TCTX.fillRect(xx,yy,ww,hh);
+      x+=w;
+    }
+    const leftIdx=(rand(1, Math.max(2, buildings.length/3))|0);
+    const rightIdx=(rand(Math.max(leftIdx+2, buildings.length*2/3), buildings.length-2)|0);
+    leftGorilla = placeGorillaOn(buildings[leftIdx], +1);
+    rightGorilla= placeGorillaOn(buildings[rightIdx], -1);
+    wind=(rand(-MAX_WIND-0.5, MAX_WIND+0.5)|0); updateWindUI(); rebuildTerrainCache();
+    UI.round.textContent=`Round ${round}`; UI.status.style.display='none'; turn='player'; UI.turnTxt.textContent='Your turn';
+    draw(); startLoop();
+  }
+  function placeGorillaOn(b, dir){ const gx=b.x+(b.w/2)|0; const gy=b.y-2; return {x:gx,y:gy,dir,alive:true}; }
+
+  // Input
+  UI.fire.addEventListener('click', onPlayerThrow);
+  UI.newBtn.addEventListener('click', ()=>{ round=1; newCity(); });
+  document.addEventListener('keydown', e=>{ if(e.key==='Enter'&&turn==='player'&&!projectile) onPlayerThrow(); });
+  function onPlayerThrow(){ if(turn!=='player'||projectile) return; const angDeg=clamp(parseFloat(UI.ang.value)||45,0,90); const velUi=clamp(parseFloat(UI.vel.value)||50,5,100); throwBanana(leftGorilla,+1,angDeg,velUi); }
+
+  function throwBanana(g,dir,angDeg,velUi){
+    const v=velUi*VEL_TO_PX, th=degToRad(angDeg); const handX=g.x+dir*18, handY=g.y-34;
+    projectile={ x:handX,y:handY, vx:Math.cos(th)*v*dir, vy:-Math.sin(th)*v, dir, owner:(g===leftGorilla?'player':'cpu') };
+    UI.fire.disabled=true;
+  }
+
+  // AI with front-wall avoidance scoring
+  function cpuTurn(){
+    if(projectile) return; UI.turnTxt.textContent='Computer thinking…';
+    const start={x:rightGorilla.x-18, y:rightGorilla.y-34}; let best=null;
+    const angles=[]; for(let a=20;a<=80;a+=2) angles.push(a);
+    const vels=[]; for(let v=26; v<=110; v+=2) vels.push(v);
+    for(const ang of angles){ for(const vv of vels){ const s=simulateThrow(start,-1,ang,vv,true,4.0); if(s.hitPlayer){ best={ang,vv,score:0}; break; } let score=s.minDistToPlayer; if(s.earlyWall) score+=1e6; else if(s.collided) score+=5e3; if(!best||score<best.score) best={ang,vv,score}; } if(best&&best.score===0) break; }
+    let ang=best?best.ang:50, vv=best?best.vv:60; // small jitter + guard
+    let angJ=ang+rand(-0.9,0.9), velJ=vv+rand(-0.9,0.9);
+    for(let i=0;i<3;i++){ const chk=simulateThrow(start,-1,angJ,velJ,true,4.0); if(!chk.earlyWall) break; angJ+=1.5; velJ+=1.5; }
+    setTimeout(()=>{ UI.turnTxt.textContent="Computer's turn"; throwBanana(rightGorilla,-1,angJ,velJ); }, 420);
+  }
+
+  // Simulation helper used by AI (and checks)
+  function simulateThrow(start,dir,angDeg,velUi,stopEarly=false,maxTime=4.5){
+    const v=velUi*VEL_TO_PX, th=degToRad(angDeg); let x=start.x,y=start.y; let vx=Math.cos(th)*v*dir, vy=-Math.sin(th)*v; let t=0, minDist=Infinity; let firstTerrainCollision=null;
+    while(t<maxTime){ vx+=(wind*WIND_TO_AX)*DT; vy+=G*DT; x+=vx*DT; y+=vy*DT; t+=DT; if(x<-20||x>CANVAS.width+20||y<-20||y>CANVAS.height+20) break; if(terrainSolidAt(x,y)){ firstTerrainCollision={x,y,t}; break; } const dP=dist(x,y,leftGorilla.x,leftGorilla.y-20); if(dP<minDist) minDist=dP; if(dP<18) return {hitPlayer:true, hitSelf:false, minDistToPlayer:0, earlyWall:false, collided:false}; }
+    let earlyWall=false; if(firstTerrainCollision){ const dx=Math.abs(firstTerrainCollision.x-start.x); if(firstTerrainCollision.t<0.45||dx<70) earlyWall=true; }
+    return { hitPlayer:false, hitSelf:false, minDistToPlayer:minDist, earlyWall, collided: !!firstTerrainCollision };
+  }
+
+  // Physics & loop
+  function animate(){ startLoop(); }
+  function step(){
+    if(!projectile) return; const p=projectile; p.vx+=(wind*WIND_TO_AX)*DT; p.vy+=G*DT; p.x+=p.vx*DT; p.y+=p.vy*DT;
+    if(p.x<-20||p.x>CANVAS.width+20||p.y<-20||p.y>CANVAS.height+20){ endThrow(false,p); return; }
+    const targetG = p.dir>0 ? rightGorilla : leftGorilla;
+    if(dist(p.x,p.y,targetG.x,targetG.y-20)<=16){ explodeGorilla(p.x,p.y); return; }
+    if(terrainSolidAt(p.x,p.y)){ explodeTerrain(p.x,p.y,p.vx,p.vy); return; }
+  }
+
+  function explodeGorilla(x,y){
+    crater(x,y,EXPLODE_R);
+    const hitLeft = dist(x,y,leftGorilla.x,leftGorilla.y-20)<EXPLODE_R*0.9;
+    const hitRight= dist(x,y,rightGorilla.x,rightGorilla.y-20)<EXPLODE_R*0.9;
+    if(hitLeft||hitRight){ const winner = (turn==='player') ? 'You win!' : 'Computer wins!'; showStatus(winner); projectile=null; UI.fire.disabled=false; round+=1; setTimeout(()=>newCity(),1300); }
+    else endThrow(true,{x,y});
+  }
+
+  function explodeTerrain(x,y,vx,vy){
+    const mag=Math.hypot(vx,vy)||1; const dx=(vx/mag)*TUNNEL_STEP, dy=(vy/mag)*TUNNEL_STEP;
+    crater(x,y,EXPLODE_R_WALL);
+    const centers=[{x,y}];
+    for(let k=1;k<=TUNNEL_STEPS;k++){ const cx=x+dx*k, cy=y+dy*k; const r=EXPLODE_R_WALL*(1 - k/(TUNNEL_STEPS+2)); crater(cx,cy,r); centers.push({x:cx,y:cy}); }
+    const hitLeft = centers.some(c=>dist(c.x,c.y,leftGorilla.x,leftGorilla.y-20)<EXPLODE_R_WALL*0.9);
+    const hitRight= centers.some(c=>dist(c.x,c.y,rightGorilla.x,rightGorilla.y-20)<EXPLODE_R_WALL*0.9);
+    if(hitLeft||hitRight){ const winner=(turn==='player')?'You win!':'Computer wins!'; showStatus(winner); projectile=null; UI.fire.disabled=false; round+=1; setTimeout(()=>newCity(),1300); }
+    else endThrow(true,{x,y});
+  }
+
+  function endThrow(hitTerrain,p){ projectile=null; UI.fire.disabled=false; if(turn==='player'){ turn='cpu'; UI.turnTxt.textContent="Computer's turn"; setTimeout(cpuTurn,380);} else { turn='player'; UI.turnTxt.textContent='Your turn'; } }
+
+  function drawBanana(p){ CTX.save(); CTX.fillStyle='#ffd54a'; CTX.beginPath(); CTX.arc(p.x,p.y,BANANA_R,0,Math.PI*2); CTX.fill(); CTX.restore(); }
+
+  function draw(){
+    drawSky(); drawSun(); CTX.drawImage(TERRAIN,0,0); drawGorilla(leftGorilla); drawGorilla(rightGorilla); if(projectile) drawBanana(projectile);
+    CTX.save(); CTX.globalAlpha=.5; CTX.translate(CANVAS.width/2,24); CTX.fillStyle='#e8ebff'; const len=60*(Math.abs(wind)/MAX_WIND); CTX.fillRect(-len*(wind<0),-2,len,4); CTX.restore();
+  }
+
+  function drawGorilla(g){ const r=16,ctx=CTX; ctx.save(); ctx.translate(g.x,g.y); ctx.fillStyle='#3b3b44'; ctx.fillRect(-14,-2,28,6);
+    ctx.beginPath(); ctx.fillStyle='#50505c'; ctx.arc(0,-r,r,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.fillStyle='#5e5e6b'; ctx.arc(0,-r*2.1,r*0.7,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#696a78'; ctx.lineWidth=5; ctx.lineCap='round'; ctx.beginPath();
+    if((turn==='player'&&g.dir>0)||(turn==='cpu'&&g.dir<0)){ ctx.moveTo(-r*0.9,-r*1.2); ctx.lineTo(-r*1.4,-r*2.1); ctx.moveTo(r*0.9,-r*1.2); ctx.lineTo(r*1.6,-r*0.8);} else { ctx.moveTo(-r*0.9,-r*1.2); ctx.lineTo(-r*1.5,-r*0.7); ctx.moveTo(r*0.9,-r*1.2); ctx.lineTo(r*1.1,-r*2.2);} ctx.stroke();
+    ctx.fillStyle='#f5f5f7'; ctx.fillRect(-4,-r*2.2,3,3); ctx.fillRect(2,-r*2.2,3,3); ctx.restore(); }
+
+  function drawSun(){ const x=CANVAS.width*0.5,y=80,r=30,g=CTX.createRadialGradient(x,y,0,x,y,r); g.addColorStop(0,'#ffe78a'); g.addColorStop(1,'#ffb64a'); CTX.fillStyle=g; CTX.beginPath(); CTX.arc(x,y,r,0,Math.PI*2); CTX.fill(); CTX.fillStyle='#7f4820'; CTX.fillRect(x-10,y-6,4,4); CTX.fillRect(x+6,y-6,4,4); CTX.beginPath(); CTX.arc(x,y+4,8,0.2*Math.PI,0.8*Math.PI); CTX.strokeStyle='#7f4820'; CTX.lineWidth=2; CTX.stroke(); }
+
+  function drawSky(){ const g=CTX.createLinearGradient(0,0,0,CANVAS.height); g.addColorStop(0,'#0b1d5a'); g.addColorStop(1,'#10235f'); CTX.fillStyle=g; CTX.fillRect(0,0,CANVAS.width,CANVAS.height); CTX.globalAlpha=.25; for(let i=0;i<60;i++) CTX.fillRect((i*73)%CANVAS.width,(i*127)%200,2,2); CTX.globalAlpha=1; }
+
+  function updateWindUI(){ UI.windTxt.textContent = wind>0?`→ ${wind}` : wind<0?`← ${Math.abs(wind)}` : '0'; const pct=Math.abs(wind)/MAX_WIND, dir=wind>=0?1:-1; UI.windFill.style.transform=`scaleX(${pct}) translateX(${dir<0?'-100%':'0'})`; UI.windFill.style.transformOrigin=dir>0?'left center':'right center'; }
+
+  function showStatus(text){ UI.status.textContent=text; UI.status.style.display='block'; }
+
+  // Animation loop + watchdog
+  let lastBeat=0, loopStarted=false;
+  function startLoop(){ if(animId==null) animId=requestAnimationFrame(tick); }
+  function tick(){ try { loopStarted=true; lastBeat=performance.now(); step(); draw(); animId=requestAnimationFrame(tick); } catch(e){ console.error(e); panicReset('Glitch detected — resetting city…'); } }
+  function panicReset(msg){ try{ if(animId!=null) cancelAnimationFrame(animId);}catch{} animId=null; projectile=null; if(UI&&UI.fire) UI.fire.disabled=false; showStatus(msg||'Recovered from an error — resetting…'); setTimeout(()=>{ round+=1; newCity(); }, 900); }
+  window.addEventListener('error', ()=>panicReset('Script error — city reset.'));
+  window.addEventListener('unhandledrejection', ()=>panicReset('Unexpected error — city reset.'));
+  setInterval(()=>{ if(!loopStarted) return; if(document.visibilityState!=='visible') return; if(performance.now()-lastBeat>2500) panicReset('Recovered from a hiccup — city reset.'); }, 1200);
+
+  // Kick off
+  newCity();
+})();
+</script>
+</body>
+</html>
+
