@@ -1,1 +1,1 @@
-gorillas.html  i told chatgpt 5 to recreate the qbasic app gorrillas .bas - but in a single html page. It is mostly polished, but is not entirely done. 
+gorillas.html -  i told chatgpt 5 to recreate the qbasic app gorrillas .bas - but in a single html page. It is mostly polished, but is not entirely done. Very impressive tho in comparison to older ai models. 
