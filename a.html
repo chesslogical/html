@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pop!_OS Cosmic Screen Recording and Video Editing Guide</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; margin: 20px; }
+        h1, h2, h3 { color: #333; }
+        code { background: #f4f4f4; padding: 2px 4px; border-radius: 4px; }
+        pre { background: #f4f4f4; padding: 10px; border-radius: 4px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Screen Recording and Video Editing on Pop!_OS Cosmic</h1>
+    <p>This guide replaces Windows Snipping Tool (for video) and Clipchamp on Pop!_OS Cosmic for creating chess videos for YouTube. Focuses on lightweight, GPU-accelerated tools using your NVIDIA RTX 4060.</p>
+
+    <h2>Screen Recording: Replacing Snipping Tool for Video</h2>
+    <p>Pop!_OS Cosmic's built-in screenshot tool is for images; use third-party apps for video. These are Wayland-compatible and leverage NVIDIA encoding.</p>
+
+    <h3>Recommended: GPU Screen Recorder</h3>
+    <p>Lightweight, GPU-accelerated for NVIDIA. Uses NVENC for low CPU usage. Supports region selection for chess games in browsers.</p>
+    <ul>
+        <li><strong>Installation:</strong>
+            <pre><code>sudo apt update
+sudo apt install flatpak
+flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+flatpak install flathub com.dec05eba.gpu_screen_recorder</code></pre>
+        </li>
+        <li><strong>Launch:</strong> <code>flatpak run com.dec05eba.gpu_screen_recorder</code></li>
+        <li><strong>Usage:</strong> Tray app; select "Region", drag over chess area, record (hotkey: Ctrl+Shift+Alt+R). Outputs MP4.</li>
+    </ul>
+
+    <h3>Alternative: Kooha</h3>
+    <p>Simpler UI, hardware encoding support.</p>
+    <ul>
+        <li><strong>Installation:</strong> <code>flatpak install flathub io.github.seadve.Kooha</code></li>
+        <li><strong>Usage:</strong> Select region, record to MP4/WebM.</li>
+    </ul>
+
+    <h3>About OBS Studio</h3>
+    <p>OBS is powerful but heavier—great for advanced needs, but overkill if you don't stream or need overlays. Skip it for your simple recording workflow; stick to GPU Screen Recorder or Kooha for efficiency.</p>
+    <ul>
+        <li>If needed: <code>sudo apt install obs-studio</code>, enable NVENC in settings.</li>
+    </ul>
+
+    <h2>Video Editing: Replacing Clipchamp</h2>
+    <h3>Recommended: Kdenlive</h3>
+    <p>Free, open-source editor for adding text, effects, etc. Supports NVIDIA acceleration.</p>
+    <ul>
+        <li><strong>Installation:</strong> <code>sudo apt install kdenlive</code> or Flatpak: <code>flatpak install flathub org.kde.kdenlive</code></li>
+        <li><strong>GPU Setup:</strong> Install <code>sudo apt install nvidia-cuda-toolkit</code>. In Kdenlive, enable GPU processing and NVENC rendering.</li>
+        <li><strong>Usage:</strong> Import MP4, trim, add text/titles for chess moves, export with YouTube presets.</li>
+    </ul>
+
+    <h3>Alternative: Shotcut</h3>
+    <p>Simpler than Kdenlive, with text/effects and NVIDIA support.</p>
+    <ul>
+        <li><strong>Installation:</strong> <code>sudo apt install shotcut</code></li>
+    </ul>
+
+    <h3>Pro Alternative: DaVinci Resolve</h3>
+    <p>Free version available, but may need tweaks on Cosmic (check System76 guide).</p>
+
+    <p>This setup matches your Windows workflow. Update NVIDIA drivers via Pop! Shop if issues arise.</p>
+</body>
+</html>
